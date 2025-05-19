@@ -1,13 +1,34 @@
-// hooks/useAppState.ts
+// hooks/useAppState.ts - Updated with person name support
 import { useState, useCallback } from 'react';
-import { AppState, GeneratedMessage, ProcessingMode, ApplicationStep, MessageConfig, ProcessingProgress } from '../types';
 
-const initialMessageConfig: MessageConfig = {
-  messageType: 'email',
-  purpose: 'partnership'
+// Updated types to include personName
+export interface AppState {
+  apiKey: string;
+  mode: 'single' | 'bulk';
+  currentStep: 'setup' | 'processing' | 'review';
+  messageConfig: {
+    messageType: 'email' | 'linkedin';
+    purpose: 'partnership' | 'product';
+  };
+  singleUsername: string;
+  personName: string;  // Added person name field
+  csvFile: File | null;
+  generatedMessages: any[];
+  currentMessageIndex: number;
+  isProcessing: boolean;
+  processingProgress: {
+    current: number;
+    total: number;
+    percentage: number;
+  };
+}
+
+const initialMessageConfig = {
+  messageType: 'email' as const,
+  purpose: 'partnership' as const
 };
 
-const initialProcessingProgress: ProcessingProgress = {
+const initialProcessingProgress = {
   current: 0,
   total: 0,
   percentage: 0
@@ -19,6 +40,7 @@ const initialState: AppState = {
   currentStep: 'setup',
   messageConfig: initialMessageConfig,
   singleUsername: '',
+  personName: '',  // Added person name field
   csvFile: null,
   generatedMessages: [],
   currentMessageIndex: 0,
@@ -33,15 +55,15 @@ export const useAppState = () => {
     setState(prev => ({ ...prev, apiKey }));
   }, []);
 
-  const updateMode = useCallback((mode: ProcessingMode) => {
+  const updateMode = useCallback((mode: 'single' | 'bulk') => {
     setState(prev => ({ ...prev, mode }));
   }, []);
 
-  const updateCurrentStep = useCallback((currentStep: ApplicationStep) => {
+  const updateCurrentStep = useCallback((currentStep: 'setup' | 'processing' | 'review') => {
     setState(prev => ({ ...prev, currentStep }));
   }, []);
 
-  const updateMessageConfig = useCallback((messageConfig: Partial<MessageConfig>) => {
+  const updateMessageConfig = useCallback((messageConfig: Partial<AppState['messageConfig']>) => {
     setState(prev => ({ 
       ...prev, 
       messageConfig: { ...prev.messageConfig, ...messageConfig }
@@ -52,15 +74,19 @@ export const useAppState = () => {
     setState(prev => ({ ...prev, singleUsername }));
   }, []);
 
+  const updatePersonName = useCallback((personName: string) => {
+    setState(prev => ({ ...prev, personName }));
+  }, []);
+
   const updateCsvFile = useCallback((csvFile: File | null) => {
     setState(prev => ({ ...prev, csvFile }));
   }, []);
 
-  const setGeneratedMessages = useCallback((generatedMessages: GeneratedMessage[]) => {
+  const setGeneratedMessages = useCallback((generatedMessages: any[]) => {
     setState(prev => ({ ...prev, generatedMessages }));
   }, []);
 
-  const updateMessageStatus = useCallback((index: number, status: GeneratedMessage['status']) => {
+  const updateMessageStatus = useCallback((index: number, status: string) => {
     setState(prev => ({
       ...prev,
       generatedMessages: prev.generatedMessages.map((msg, i) => 
@@ -77,7 +103,7 @@ export const useAppState = () => {
     setState(prev => ({ ...prev, isProcessing }));
   }, []);
 
-  const updateProcessingProgress = useCallback((progress: Partial<ProcessingProgress>) => {
+  const updateProcessingProgress = useCallback((progress: Partial<AppState['processingProgress']>) => {
     setState(prev => ({
       ...prev,
       processingProgress: { ...prev.processingProgress, ...progress }
@@ -95,6 +121,7 @@ export const useAppState = () => {
       generatedMessages: [],
       currentMessageIndex: 0,
       singleUsername: '',
+      personName: '',  // Reset person name
       csvFile: null,
       processingProgress: initialProcessingProgress
     }));
@@ -118,6 +145,7 @@ export const useAppState = () => {
       updateCurrentStep,
       updateMessageConfig,
       updateSingleUsername,
+      updatePersonName,  // Added person name action
       updateCsvFile,
       setGeneratedMessages,
       updateMessageStatus,

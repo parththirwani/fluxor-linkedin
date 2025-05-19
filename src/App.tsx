@@ -7,7 +7,6 @@ import { SetupStep } from './components/SetupStep';
 import { ProcessingStep } from './components/ProcessingStep';
 import { ReviewStep } from './components/ReviewSteps';
 
-
 const FluxorOutreachApp: React.FC = () => {
   const { state, actions, computed } = useAppState();
 
@@ -81,9 +80,15 @@ const FluxorOutreachApp: React.FC = () => {
     downloadAsJson(rejectedMessages, `rejected-messages-${Date.now()}.json`);
   };
 
-  // Processing handlers
+  // Processing handlers - Updated to include person name
   const handleProcessSingle = () => {
-    processSingleProfile(state.singleUsername);
+    if (state.personName.trim()) {
+      // Pass both username and person name
+      processSingleProfile(state.singleUsername, state.personName.trim());
+    } else {
+      // Fall back to just username if no name provided
+      processSingleProfile(state.singleUsername);
+    }
   };
 
   const handleProcessBulk = () => {
@@ -117,6 +122,8 @@ const FluxorOutreachApp: React.FC = () => {
             onMessageConfigChange={actions.updateMessageConfig}
             singleUsername={state.singleUsername}
             onSingleUsernameChange={actions.updateSingleUsername}
+            personName={state.personName}
+            onPersonNameChange={actions.updatePersonName}
             csvFile={state.csvFile}
             onCsvFileChange={actions.updateCsvFile}
             onProcessSingle={handleProcessSingle}

@@ -1,8 +1,37 @@
 // hooks/useProcessing.ts
 import { useCallback } from 'react';
-import { GeneratedMessage, MessageConfig } from '../types';
 import { analyzeLinkedInProfile, generateMessage } from '../services/profileService';
 import { parseCsvFile } from '../utils/csvUtils';
+
+// Define types locally to avoid dependency issues
+interface ProfileData {
+  name: string;
+  username: string;
+  linkedinUrl: string;
+  title?: string;
+  company?: string;
+  bio?: string;
+  location?: string;
+  experience?: string;
+  skills?: string[];
+  contentItems?: any[];
+  partnershipBenefits?: any[];
+}
+
+interface GeneratedMessage {
+  id: string;
+  profileData: ProfileData;
+  messageContent: string;
+  messageType: 'email' | 'linkedin';
+  purpose: 'partnership' | 'product';
+  status: 'pending' | 'approved' | 'rejected';
+  generatedAt: Date;
+}
+
+interface MessageConfig {
+  messageType: 'email' | 'linkedin';
+  purpose: 'partnership' | 'product';
+}
 
 interface UseProcessingProps {
   apiKey: string;
@@ -24,7 +53,7 @@ export const useProcessing = ({
   onError
 }: UseProcessingProps) => {
   
-  const processSingleProfile = useCallback(async (username: string) => {
+  const processSingleProfile = useCallback(async (username: string, personName?: string) => {
     if (!apiKey || !username) {
       onError('Please enter API key and LinkedIn username');
       return;
@@ -33,12 +62,23 @@ export const useProcessing = ({
     onProcessingStart();
 
     try {
-      const profileData = await analyzeLinkedInProfile(username);
+      // Convert username to LinkedIn URL format for the analyzeLinkedInProfile function
+      const linkedinUrl = username.includes('linkedin.com') 
+        ? username 
+        : `https://linkedin.com/in/${username}`;
+        
+      const profileData = await analyzeLinkedInProfile(linkedinUrl, apiKey);
+      
+      // If personName is provided, use it instead of the extracted name
+      if (personName) {
+        profileData.name = personName;
+      }
+      
       const messageContent = await generateMessage(
         profileData, 
         messageConfig.messageType, 
-        messageConfig.purpose
-        // Note: apiKey removed since mock implementation doesn't use it
+        messageConfig.purpose,
+        apiKey
       );
 
       const message: GeneratedMessage = {
@@ -78,12 +118,17 @@ export const useProcessing = ({
         onProgressUpdate(i + 1, usernames.length);
 
         try {
-          const profileData = await analyzeLinkedInProfile(username);
+          // Convert username to LinkedIn URL format
+          const linkedinUrl = username.includes('linkedin.com') 
+            ? username 
+            : `https://linkedin.com/in/${username}`;
+            
+          const profileData = await analyzeLinkedInProfile(linkedinUrl, apiKey);
           const messageContent = await generateMessage(
             profileData, 
             messageConfig.messageType, 
-            messageConfig.purpose
-            // Note: apiKey removed since mock implementation doesn't use it
+            messageConfig.purpose,
+            apiKey
           );
 
           messages.push({
@@ -95,10 +140,20 @@ export const useProcessing = ({
             status: 'pending',
             generatedAt: new Date()
           });
+          
+          // Add a small delay to avoid rate limiting
+          if (i < usernames.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         } catch (error) {
           console.error(`Error processing ${username}:`, error);
           // Continue processing other profiles even if one fails
         }
+      }
+
+      if (messages.length === 0) {
+        onError('Failed to process any profiles from the CSV file');
+        return;
       }
 
       onMessagesGenerated(messages);

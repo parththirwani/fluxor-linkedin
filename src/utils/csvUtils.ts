@@ -1,4 +1,6 @@
-// utils/csvUtils.ts
+// utils/csvUtils.ts - Enhanced with LinkedIn URL support
+import { extractUsernameFromLinkedInUrl, validateLinkedInUrl, normalizeLinkedInUrl } from '../services/profileService';
+
 export const parseCsvFile = async (file: File): Promise<string[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -8,40 +10,99 @@ export const parseCsvFile = async (file: File): Promise<string[]> => {
         const text = e.target?.result as string;
         const lines = text.split('\n').filter(line => line.trim());
         
+        if (lines.length === 0) {
+          reject(new Error('CSV file is empty'));
+          return;
+        }
+        
         // Skip header row if it exists (check if first row contains common header terms)
         const firstLine = lines[0]?.toLowerCase() || '';
         const hasHeader = firstLine.includes('linkedin') || 
                          firstLine.includes('username') || 
                          firstLine.includes('profile') ||
-                         firstLine.includes('name');
+                         firstLine.includes('name') ||
+                         firstLine.includes('url');
         
         const startIndex = hasHeader ? 1 : 0;
         
-        // Extract usernames from the first column
-        const usernames = lines.slice(startIndex).map(line => {
-          // Handle both comma and semicolon separators
-          const cols = line.split(/[,;]/).map(col => col.trim());
+        if (lines.length <= startIndex) {
+          reject(new Error('CSV file contains no data rows'));
+          return;
+        }
+        
+        // Extract usernames/URLs from the first column
+        const extractedUsernames: string[] = [];
+        const errors: string[] = [];
+        
+        lines.slice(startIndex).forEach((line, index) => {
+          // Handle both comma and semicolon separators, also handle quoted values
+          const cols = line.split(/[,;]/).map(col => col.trim().replace(/^["']|["']$/g, ''));
           
-          // Remove quotes if present
-          let username = cols[0]?.replace(/["']/g, '') || '';
-          
-          // If it's a full LinkedIn URL, extract just the username
-          if (username.includes('linkedin.com/in/')) {
-            const match = username.match(/linkedin\.com\/in\/([^\/?\s]+)/);
-            username = match ? match[1] : username;
+          if (cols.length === 0 || !cols[0]) {
+            errors.push(`Row ${index + startIndex + 1}: Empty value`);
+            return;
           }
           
-          return username;
-        }).filter(username => {
-          // Filter out empty usernames and common header terms
-          return username && 
-                 !username.toLowerCase().includes('linkedin') &&
-                 !username.toLowerCase().includes('username') &&
-                 !username.toLowerCase().includes('profile') &&
-                 !username.toLowerCase().includes('name');
+          let input = cols[0].trim();
+          
+          // Skip obviously invalid entries
+          if (input.toLowerCase().includes('linkedin') && 
+              input.toLowerCase().includes('username') ||
+              input.toLowerCase().includes('profile') ||
+              input.toLowerCase().includes('name')) {
+            return; // Skip header-like entries
+          }
+          
+          let username = '';
+          
+          // Check if it's a LinkedIn URL
+          if (input.includes('linkedin.com')) {
+            const normalizedUrl = normalizeLinkedInUrl(input);
+            
+            if (validateLinkedInUrl(normalizedUrl)) {
+              const extractedUsername = extractUsernameFromLinkedInUrl(normalizedUrl);
+              if (extractedUsername) {
+                username = extractedUsername;
+              } else {
+                errors.push(`Row ${index + startIndex + 1}: Could not extract username from URL: ${input}`);
+                return;
+              }
+            } else {
+              errors.push(`Row ${index + startIndex + 1}: Invalid LinkedIn URL: ${input}`);
+              return;
+            }
+          } else {
+            // Treat as username directly
+            username = input.replace(/^@/, ''); // Remove @ if present
+            
+            // Basic username validation
+            if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(username) || 
+                username.length < 3 || username.length > 100) {
+              errors.push(`Row ${index + startIndex + 1}: Invalid username format: ${input}`);
+              return;
+            }
+          }
+          
+          if (username && !extractedUsernames.includes(username)) {
+            extractedUsernames.push(username);
+          }
         });
         
-        resolve(usernames);
+        if (extractedUsernames.length === 0) {
+          if (errors.length > 0) {
+            reject(new Error(`No valid LinkedIn profiles found. Errors:\n${errors.join('\n')}`));
+          } else {
+            reject(new Error('No valid LinkedIn profiles found in the CSV file'));
+          }
+          return;
+        }
+        
+        // Log warnings for errors but still proceed if we have some valid entries
+        if (errors.length > 0) {
+          console.warn('CSV parsing warnings:', errors);
+        }
+        
+        resolve(extractedUsernames);
       } catch (error) {
         reject(new Error(`Failed to parse CSV file: ${error instanceof Error ? error.message : 'Unknown error'}`));
       }
@@ -159,4 +220,33 @@ export const formatExportData = (messages: any[], includeMetadata: boolean = tru
     
     return baseData;
   });
+};
+
+// Generate a sample CSV template for download
+export const generateSampleCsv = (): string => {
+  const sampleData = [
+    'LinkedIn Profile',
+    'https://linkedin.com/in/john-doe',
+    'https://linkedin.com/in/jane-smith',
+    'linkedin.com/in/alex-johnson',
+    'bob-wilson',
+    'sarah-chen'
+  ];
+  
+  return sampleData.join('\n');
+};
+
+// Download sample CSV template
+export const downloadSampleCsv = () => {
+  const csvContent = generateSampleCsv();
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'linkedin-profiles-template.csv';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
