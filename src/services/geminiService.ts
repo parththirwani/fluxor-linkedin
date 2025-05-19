@@ -1,10 +1,18 @@
-import { PARTNERSHIP_EMAIL_PROMPT, PRODUCT_EMAIL_PROMPT } from '../prompts/emailPrompt';
-import { OutreachData, ProfileAnalysis, Person } from '../types';
+// services/geminiService.ts
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+interface GeminiResponse {
+  candidates: Array<{
+    content: {
+      parts: Array<{
+        text: string;
+      }>;
+    };
+  }>;
+}
 
-class GeminiService {
-  private async callGeminiAPI(apiKey: string, prompt: string): Promise<string> {
+export class GeminiService {
+  static async callGeminiAPI(apiKey: string, prompt: string): Promise<string> {
     try {
       const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
         method: 'POST',
@@ -26,10 +34,15 @@ class GeminiService {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error?.message || 'Failed to generate content');
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Gemini API request failed');
+      }
+
+      const data: GeminiResponse = await response.json();
+      
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Invalid response from Gemini API');
       }
 
       return data.candidates[0].content.parts[0].text;
@@ -39,144 +52,72 @@ class GeminiService {
     }
   }
 
-  private replacePromptVariables(
-    prompt: string, 
-    person: Person, 
-    extractedInfo: any, 
-    contentItems: any[], 
-    partnershipBenefits?: any[]
-  ): string {
-    const contentItemsText = contentItems
-      .map(item => `- ${item.type.charAt(0).toUpperCase() + item.type.slice(1)}: ${item.content}`)
-      .join('\n');
+  static async analyzeLinkedInProfile(apiKey: string, username: string): Promise<any> {
+    const analysisPrompt = `
+You are analyzing a LinkedIn profile for outreach purposes. Based on the username "${username}", generate realistic professional information that would typically be found on a LinkedIn profile.
 
-    const benefitsText = partnershipBenefits 
-      ? partnershipBenefits.map(benefit => `- Benefit for them: ${benefit.forThem}\n  Benefit for Fluxor: ${benefit.forFluxor}`).join('\n')
-      : '';
+Provide a detailed analysis in the following JSON format:
 
-    return prompt
-      .replace('{{name}}', person.name)
-      .replace('{{title}}', extractedInfo.title || 'Professional')
-      .replace('{{company}}', extractedInfo.company || 'their organization')
-      .replace('{{linkedinUrl}}', person.linkedinUrl)
-      .replace('{{bio}}', extractedInfo.bio || 'Blockchain and technology professional')
-      .replace('{{contentItems}}', contentItemsText)
-      .replace('{{partnershipBenefits}}', benefitsText);
-  }
-
-  async analyzeLinkedInProfile(apiKey: string, person: Person): Promise<ProfileAnalysis> {
-    const prompt = `
-    You are analyzing a LinkedIn profile for outreach purposes. Based on the person's name "${person.name}" and their LinkedIn URL "${person.linkedinUrl}", I need you to:
-
-    1. Extract their professional information (title, company, bio)
-    2. Identify their key content and activities 
-    3. Suggest partnership benefits
-
-    Please provide a detailed analysis in the following JSON format:
-
+{
+  "extractedInfo": {
+    "title": "A realistic job title based on the username/name",
+    "company": "A believable company name",
+    "bio": "A professional bio highlighting expertise and experience (2-3 sentences)",
+    "location": "A professional location",
+    "experience": "Years of experience in the field",
+    "skills": ["skill1", "skill2", "skill3", "skill4", "skill5"]
+  },
+  "contentItems": [
     {
-      "extractedInfo": {
-        "title": "Their job title",
-        "company": "Their company name", 
-        "bio": "A brief professional bio based on their profile"
-      },
-      "contentItems": [
-        {
-          "type": "post|article|project|achievement|interest",
-          "content": "Description of their content or activity"
-        }
-      ],
-      "partnershipBenefits": [
-        {
-          "forThem": "What they would gain from partnering with Fluxor",
-          "forFluxor": "What Fluxor would gain from this partnership"
-        }
-      ]
+      "type": "post",
+      "content": "A realistic recent LinkedIn post about their work or industry"
+    },
+    {
+      "type": "article",
+      "content": "A professional article they might have shared or written"
+    },
+    {
+      "type": "project",
+      "content": "A project they've worked on related to their field"
+    },
+    {
+      "type": "achievement",
+      "content": "A professional achievement or milestone"
+    },
+    {
+      "type": "interest",
+      "content": "Professional interests and areas of focus"
     }
-
-    Focus on:
-    - Their recent posts and professional activities
-    - Their expertise areas and interests
-    - Projects they've worked on or companies they've been involved with
-    - How their background could create mutual value with Fluxor (an on-chain hackathon management platform)
-    
-    Provide at least 4-5 content items and 3-4 partnership benefits.
-    Make the analysis realistic and detailed based on what you would typically find on a blockchain/tech professional's LinkedIn profile.
-    `;
-
-    try {
-      const response = await this.callGeminiAPI(apiKey, prompt);
-      
-      // Parse the JSON response
-      const analysisData = JSON.parse(response.replace(/```json\n?|\n?```/g, '').trim());
-      
-      return analysisData as ProfileAnalysis;
-    } catch (error) {
-      console.error('Error parsing profile analysis:', error);
-      // Fallback with mock data if parsing fails
-      return {
-        extractedInfo: {
-          title: "Blockchain Developer",
-          company: "Tech Innovations Inc.",
-          bio: "Experienced blockchain developer with expertise in DeFi and smart contracts."
-        },
-        contentItems: [
-          { type: 'post', content: 'Recently shared insights on cross-chain interoperability challenges.' },
-          { type: 'project', content: 'Led development of a multi-chain DEX aggregator.' },
-          { type: 'interest', content: 'Actively engaged in discussions about DAO governance models.' },
-          { type: 'achievement', content: 'Recognized as top contributor in recent hackathon.' },
-          { type: 'article', content: 'Published technical article on zero-knowledge proofs in DeFi.' }
-        ],
-        partnershipBenefits: [
-          {
-            forThem: "Early access to cutting-edge blockchain talent and innovative solutions from Fluxor hackathons.",
-            forFluxor: "Leverage their technical expertise to enhance our platform's DeFi integrations."
-          },
-          {
-            forThem: "Platform to showcase their technology through sponsored challenges and workshops.",
-            forFluxor: "Gain credibility and expand our network in the DeFi development community."
-          },
-          {
-            forThem: "Opportunity to mentor next-generation blockchain developers.",
-            forFluxor: "Access to their extensive professional network and industry connections."
-          }
-        ]
-      };
+  ],
+  "partnershipBenefits": [
+    {
+      "forThem": "Specific benefit they would gain from partnering with Fluxor",
+      "forFluxor": "Specific benefit Fluxor would gain from this partnership"
+    },
+    {
+      "forThem": "Another benefit for them",
+      "forFluxor": "Another benefit for Fluxor"
+    },
+    {
+      "forThem": "Third benefit for them",
+      "forFluxor": "Third benefit for Fluxor"
     }
-  }
-
-  async generatePersonalizedOutreach(apiKey: string, outreachData: OutreachData): Promise<string> {
-    if (!outreachData.profileAnalysis) {
-      throw new Error('Profile analysis required for email generation');
-    }
-
-    const { person, profileAnalysis, outreachOptions } = outreachData;
-    const { extractedInfo, contentItems, partnershipBenefits } = profileAnalysis;
-
-    // Select the appropriate prompt based on message type and purpose
-    let selectedPrompt: string;
-    
-    if (outreachOptions.messageType === 'email') {
-      selectedPrompt = outreachOptions.purpose === 'partnership' 
-        ? PARTNERSHIP_EMAIL_PROMPT 
-        : PRODUCT_EMAIL_PROMPT;
-    } else {
-      selectedPrompt = outreachOptions.purpose === 'partnership' 
-        ? PARTNERSHIP_EMAIL_PROMPT 
-        : PRODUCT_EMAIL_PROMPT;
-    }
-
-    // Replace variables in the prompt
-    const populatedPrompt = this.replacePromptVariables(
-      selectedPrompt, 
-      person, 
-      extractedInfo, 
-      contentItems, 
-      outreachOptions.purpose === 'partnership' ? partnershipBenefits : undefined
-    );
-
-    return this.callGeminiAPI(apiKey, populatedPrompt);
-  }
+  ]
 }
 
-export const geminiService = new GeminiService();
+Make the analysis realistic and detailed based on what you would expect for someone in the blockchain/tech industry. Consider the following professional roles: blockchain developer, product manager, CTO, founder, marketing director, business development, venture capitalist, etc.
+
+Focus on creating content that would make sense for partnership or product introduction outreach for Fluxor (an on-chain hackathon management platform).
+
+Only return the JSON object, no additional text.
+`;
+
+    try {
+      const response = await this.callGeminiAPI(apiKey, analysisPrompt);
+      return JSON.parse(response.replace(/```json|```/g, '').trim());
+    } catch (error) {
+      console.error('Error analyzing LinkedIn profile:', error);
+      throw new Error('Failed to analyze LinkedIn profile');
+    }
+  }
+}
