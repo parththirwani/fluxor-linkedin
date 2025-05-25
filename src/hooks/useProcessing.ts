@@ -1,7 +1,9 @@
-// hooks/useProcessing.ts
+// hooks/useProcessing.ts - Updated with database integration
 import { useCallback } from 'react';
 import { analyzeLinkedInProfile, generateMessage } from '../services/profileService';
 import { parseCsvFile } from '../utils/csvUtils';
+import DatabaseService from '../services/databaseService';
+import { MessageType, MessagePurpose } from '@prisma/client';
 
 // Define types locally to avoid dependency issues
 interface ProfileData {
@@ -81,15 +83,17 @@ export const useProcessing = ({
         apiKey
       );
 
-      const message: GeneratedMessage = {
-        id: Date.now().toString(),
-        profileData,
+      // Save to database
+      const savedProfile = await DatabaseService.createProfile(profileData);
+      const savedMessage = await DatabaseService.createMessage(
+        savedProfile.id,
         messageContent,
-        messageType: messageConfig.messageType,
-        purpose: messageConfig.purpose,
-        status: 'pending',
-        generatedAt: new Date()
-      };
+        messageConfig.messageType.toUpperCase() as MessageType,
+        messageConfig.purpose.toUpperCase() as MessagePurpose
+      );
+
+      // Convert to GeneratedMessage format
+      const message: GeneratedMessage = DatabaseService.convertToGeneratedMessage(savedMessage);
 
       onMessagesGenerated([message]);
       onProcessingComplete();
@@ -131,15 +135,18 @@ export const useProcessing = ({
             apiKey
           );
 
-          messages.push({
-            id: `${Date.now()}-${i}`,
-            profileData,
+          // Save to database
+          const savedProfile = await DatabaseService.createProfile(profileData);
+          const savedMessage = await DatabaseService.createMessage(
+            savedProfile.id,
             messageContent,
-            messageType: messageConfig.messageType,
-            purpose: messageConfig.purpose,
-            status: 'pending',
-            generatedAt: new Date()
-          });
+            messageConfig.messageType.toUpperCase() as MessageType,
+            messageConfig.purpose.toUpperCase() as MessagePurpose
+          );
+
+          // Convert to GeneratedMessage format
+          const message = DatabaseService.convertToGeneratedMessage(savedMessage);
+          messages.push(message);
           
           // Add a small delay to avoid rate limiting
           if (i < usernames.length - 1) {

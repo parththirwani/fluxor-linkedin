@@ -1,5 +1,5 @@
-import React from 'react';
-import { Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sparkles, History } from 'lucide-react';
 import { useAppState } from './hooks/useAppState';
 import { useProcessing } from './hooks/useProcessing';
 import { downloadAsJson } from './utils/csvUtils';
@@ -7,8 +7,13 @@ import { SetupStep } from './components/SetupStep';
 import { ProcessingStep } from './components/ProcessingStep';
 import { ReviewStep } from './components/ReviewSteps';
 
+import { GeneratedMessage } from './types';
+import { MessageHistory } from './components/messageHistory';
+import { MessageViewer } from './components/messageViewer';
+
 const FluxorOutreachApp: React.FC = () => {
   const { state, actions, computed } = useAppState();
+  const [selectedMessage, setSelectedMessage] = useState<GeneratedMessage | null>(null);
 
   const handleProcessingStart = () => {
     actions.setProcessing(true);
@@ -19,6 +24,8 @@ const FluxorOutreachApp: React.FC = () => {
     actions.setProcessing(false);
     actions.updateCurrentStep('review');
     actions.setCurrentMessageIndex(0);
+    // Refresh message stats after processing
+    actions.loadMessageStats();
   };
 
   const handleProgressUpdate = (current: number, total: number) => {
@@ -55,17 +62,25 @@ const FluxorOutreachApp: React.FC = () => {
   };
 
   // Message approval handlers
-  const handleApprove = () => {
-    actions.updateMessageStatus(state.currentMessageIndex, 'approved');
-    if (computed.canMoveNext) {
-      handleNext();
+  const handleApprove = async () => {
+    try {
+      await actions.updateMessageStatus(state.currentMessageIndex, 'approved');
+      if (computed.canMoveNext) {
+        handleNext();
+      }
+    } catch (error) {
+      console.error('Error approving message:', error);
     }
   };
 
-  const handleReject = () => {
-    actions.updateMessageStatus(state.currentMessageIndex, 'rejected');
-    if (computed.canMoveNext) {
-      handleNext();
+  const handleReject = async () => {
+    try {
+      await actions.updateMessageStatus(state.currentMessageIndex, 'rejected');
+      if (computed.canMoveNext) {
+        handleNext();
+      }
+    } catch (error) {
+      console.error('Error rejecting message:', error);
     }
   };
 
@@ -80,13 +95,11 @@ const FluxorOutreachApp: React.FC = () => {
     downloadAsJson(rejectedMessages, `rejected-messages-${Date.now()}.json`);
   };
 
-  // Processing handlers - Updated to include person name
+  // Processing handlers
   const handleProcessSingle = () => {
     if (state.personName.trim()) {
-      // Pass both username and person name
       processSingleProfile(state.singleUsername, state.personName.trim());
     } else {
-      // Fall back to just username if no name provided
       processSingleProfile(state.singleUsername);
     }
   };
@@ -94,6 +107,40 @@ const FluxorOutreachApp: React.FC = () => {
   const handleProcessBulk = () => {
     if (state.csvFile) {
       processBulkProfiles(state.csvFile);
+    }
+  };
+
+  // History handlers
+  const handleShowHistory = () => {
+    actions.updateCurrentStep('history');
+    actions.loadMessageHistory();
+  };
+
+  const handleLoadMoreHistory = () => {
+    const offset = state.historyMessages.length;
+    actions.loadMessageHistory(50, offset);
+  };
+
+  const handleViewMessage = (message: GeneratedMessage) => {
+    setSelectedMessage(message);
+  };
+
+  const handleUpdateMessageStatus = async (messageId: string, status: 'approved' | 'rejected') => {
+    try {
+      // Find the message in history
+      const messageIndex = state.historyMessages.findIndex(msg => msg.id === messageId);
+      if (messageIndex !== -1) {
+        // Update the message status (this will update the database)
+        await actions.updateMessageStatus(messageIndex, status);
+        
+        // Update the selected message if it's the same one
+        if (selectedMessage && selectedMessage.id === messageId) {
+          setSelectedMessage({ ...selectedMessage, status });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating message status:', error);
+      throw error;
     }
   };
 
@@ -109,6 +156,19 @@ const FluxorOutreachApp: React.FC = () => {
           <p className="text-gray-600 max-w-2xl mx-auto">
             Generate personalized outreach messages for LinkedIn profiles with AI-powered analysis and approval workflow
           </p>
+          
+          {/* Navigation */}
+          {(state.currentStep === 'setup' || state.currentStep === 'review') && (
+            <div className="flex items-center justify-center gap-4 mt-4">
+              <button
+                onClick={handleShowHistory}
+                className="flex items-center gap-2 px-4 py-2 text-indigo-600 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition"
+              >
+                <History className="w-4 h-4" />
+                View Message History ({state.messageStats.total})
+              </button>
+            </div>
+          )}
         </header>
 
         {/* Step Content */}
@@ -155,6 +215,28 @@ const FluxorOutreachApp: React.FC = () => {
             pendingCount={computed.pendingCount}
             canMovePrev={computed.canMovePrev}
             canMoveNext={computed.canMoveNext}
+          />
+        )}
+
+        {state.currentStep === 'history' && !selectedMessage && (
+          <MessageHistory
+            messages={state.historyMessages}
+            loading={state.historyLoading}
+            messageStats={state.messageStats}
+            filters={state.historyFilters}
+            onFiltersChange={actions.updateHistoryFilters}
+            onLoadMore={handleLoadMoreHistory}
+            onDeleteMessage={actions.deleteMessage}
+            onViewMessage={handleViewMessage}
+            onGoBack={() => actions.updateCurrentStep('setup')}
+          />
+        )}
+
+        {selectedMessage && (
+          <MessageViewer
+            message={selectedMessage}
+            onGoBack={() => setSelectedMessage(null)}
+            onUpdateStatus={handleUpdateMessageStatus}
           />
         )}
 

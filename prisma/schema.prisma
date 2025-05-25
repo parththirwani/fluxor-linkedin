@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id            String  @id @default(cuid())
+  name          String
+  username      String  @unique
+  linkedinUrl   String
+  title         String?
+  company       String?
+  bio           String?
+  location      String?
+  experience    String?
+  skills        String[] // Array of skills
+  contentItems  Json?    // JSON array of content items
+  partnershipBenefits Json? // JSON array of partnership benefits
+  
+  // Relations
+  messages      Message[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+model Message {
+  id              String        @id @default(cuid())
+  messageContent  String        @db.Text
+  messageType     MessageType
+  purpose         MessagePurpose
+  status          MessageStatus @default(PENDING)
+  
+  // Profile relation
+  profileId       String
+  profile         Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  
+  // Metadata
+  generatedAt     DateTime      @default(now())
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  reviewedBy      String?       // Could be user ID in future
+  
+  // Audit fields
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("messages")
+}
+
+enum MessageType {
+  EMAIL
+  LINKEDIN
+}
+
+enum MessagePurpose {
+  PARTNERSHIP
+  PRODUCT
+}
+
+enum MessageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
